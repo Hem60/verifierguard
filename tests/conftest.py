@@ -38,6 +38,8 @@ class FakeRunner:
 
 @pytest.fixture
 def make_task(tmp_path: Path):  # type: ignore[no-untyped-def]
+    counter = {"n": 0}
+
     def _make(
         test_sh: str = "#!/bin/bash\necho 1 > /logs/verifier/reward.txt\n",
         instruction: str = "Write the total to /app/answer.txt\n",
@@ -45,7 +47,8 @@ def make_task(tmp_path: Path):  # type: ignore[no-untyped-def]
         solution: bool = True,
         extra_tests: dict[str, str] | None = None,
     ) -> Path:
-        root = tmp_path / "task"
+        counter["n"] += 1
+        root = tmp_path / ("task" if counter["n"] == 1 else f"task{counter['n']}")
         (root / "environment").mkdir(parents=True)
         (root / "tests").mkdir()
         (root / "instruction.md").write_text(instruction)

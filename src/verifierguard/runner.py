@@ -24,9 +24,7 @@ class RunnerError(Exception):
 
 
 class Runner(Protocol):
-    def run(
-        self, task: Task, script: str, label: str, with_solution: bool = False
-    ) -> RunResult: ...
+    def run(self, task: Task, script: str, label: str, with_solution: bool = False) -> RunResult: ...
 
 
 def docker_available(docker: str = "docker") -> bool:
@@ -72,9 +70,7 @@ class DockerRunner:
         self.cpus = cpus
         self._images: dict[Path, str] = {}
 
-    def _cmd(
-        self, *args: str, timeout: int, check: bool = False
-    ) -> subprocess.CompletedProcess[str]:
+    def _cmd(self, *args: str, timeout: int, check: bool = False) -> subprocess.CompletedProcess[str]:
         try:
             proc = subprocess.run(
                 [self.docker, *args],

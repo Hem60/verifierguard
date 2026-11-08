@@ -33,3 +33,42 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest --cov=verifierguard --cov-fail-under=80
+  selfscan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: verifierguard scan examples/weak_task --expect weak --json weak-report.json
+      - run: verifierguard scan examples/strong_task --expect solid --html strong-report.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfscan-reports
+          path: |
+            weak-report.json
+            strong-report.html
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+  security:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip install -e .
+      - run: pip-audit --skip-editable

@@ -14,9 +14,7 @@ true
 
 class Tamper(Cheater):
     name = "tamper"
-    meaning = (
-        "The agent can edit the reward file or test files, and the verifier does not reset them."
-    )
+    meaning = "The agent can edit the reward file or test files, and the verifier does not reset them."
 
     def attempts(self, task: Task) -> list[Attempt]:
         return [Attempt("pre-write reward and overwrite tests", SCRIPT)]
