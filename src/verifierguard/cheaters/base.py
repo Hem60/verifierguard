@@ -22,6 +22,7 @@ class CheaterResult:
     meaning: str
     attempts: list[dict[str, object]] = field(default_factory=list)
     evidence: str = ""
+    inconclusive: bool = False  # verifier hit infrastructure errors, so 'blocked' is not trusted
 
 
 class Cheater(ABC):
@@ -40,9 +41,11 @@ class Cheater(ABC):
 
     def run(self, task: Task, runner: Runner) -> CheaterResult:
         results = [runner.run(task, a.script, a.label) for a in self.attempts(task)]
+        succeeded = self.succeeded(results)
         return CheaterResult(
             name=self.name,
-            succeeded=self.succeeded(results),
+            succeeded=succeeded,
+            inconclusive=not succeeded and any(r.infra_failure for r in results),
             meaning=self.meaning,
             attempts=[
                 {"label": r.label, "reward": r.reward, "agent_exit": r.agent_exit, "error": r.error}

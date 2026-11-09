@@ -15,7 +15,7 @@ from verifierguard.static_checks import PENALTY, Finding, run_static_checks
 
 CHEATER_PENALTY = {"do_nothing": 40, "hard_code": 30, "tamper": 30, "test_peek": 20}
 
-WEAK, SOLID, BROKEN = "weak", "solid", "broken"
+WEAK, SOLID, BROKEN, INCONCLUSIVE = "weak", "solid", "broken", "inconclusive"
 
 
 @dataclass
@@ -40,6 +40,7 @@ class ScanReport:
     task: str
     dynamic: bool
     oracle_passed: bool | None
+    oracle_infra: bool = False
     cheaters: list[CheaterResult] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
     fixes: list[FixOutcome] = field(default_factory=list)
@@ -57,6 +58,7 @@ class ScanReport:
             "score": self.score,
             "dynamic": self.dynamic,
             "oracle_passed": self.oracle_passed,
+            "oracle_infra_failure": self.oracle_infra,
             "cheaters": [asdict(c) for c in self.cheaters],
             "cheaters_passed": self.cheaters_passed,
             "static_findings": [asdict(f) for f in self.findings],
@@ -72,11 +74,18 @@ def compute_score(cheaters: list[CheaterResult], findings: list[Finding]) -> int
     return max(score, 0)
 
 
-def decide_verdict(cheaters: list[CheaterResult], findings: list[Finding], oracle_passed: bool | None) -> str:
+def decide_verdict(
+    cheaters: list[CheaterResult],
+    findings: list[Finding],
+    oracle_passed: bool | None,
+    oracle_infra: bool = False,
+) -> str:
     if oracle_passed is False:
-        return BROKEN
+        return INCONCLUSIVE if oracle_infra else BROKEN
     if any(c.succeeded for c in cheaters) or any(f.severity == "high" for f in findings):
         return WEAK
+    if any(c.inconclusive for c in cheaters):
+        return INCONCLUSIVE
     return SOLID
 
 
@@ -96,13 +105,15 @@ def scan_task(
 
     if runner is not None:
         if task.has_solution:
-            report.oracle_passed = run_oracle(task, runner).passed
+            oracle = run_oracle(task, runner)
+            report.oracle_passed = oracle.passed
+            report.oracle_infra = oracle.infra_failure
         if report.oracle_passed is not False:
             for cheater in cheaters if cheaters is not None else all_cheaters():
                 report.cheaters.append(cheater.run(task, runner))
 
     report.score = compute_score(report.cheaters, findings)
-    report.verdict = decide_verdict(report.cheaters, findings, report.oracle_passed)
+    report.verdict = decide_verdict(report.cheaters, findings, report.oracle_passed, report.oracle_infra)
 
     if runner is not None and propose_fixes and report.verdict == WEAK:
         fixes = suggest_fixes(report.cheaters, findings)
