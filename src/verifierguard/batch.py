@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from verifierguard.loader import REQUIRED, TaskError, load_task
@@ -32,19 +34,44 @@ def row_for(report: ScanReport) -> dict[str, object]:
     }
 
 
-def run_batch(root: Path, csv_path: Path, runner: Runner | None, propose_fixes: bool = False) -> int:
-    """Returns how many tasks were scanned. A broken task becomes an error row, not a crash."""
-    tasks = find_tasks(root)
+def _scan_one(path: Path, runner: Runner | None, propose_fixes: bool, cleanup: bool) -> dict[str, object]:
+    """Scan one folder. A broken task becomes an error row, not a crash."""
+    try:
+        task = load_task(path)
+        try:
+            return row_for(scan_task(task, runner, propose_fixes=propose_fixes))
+        finally:
+            remove = getattr(runner, "cleanup", None)
+            if cleanup and callable(remove):
+                remove(task)
+    except Exception as exc:  # noqa: BLE001 - keep scanning the rest
+        kind = "task" if isinstance(exc, TaskError) else "scan"
+        return {"task": path.name, "error": f"{kind} error: {exc}"}
+
+
+def run_batch(
+    root: Path,
+    csv_path: Path,
+    runner: Runner | None,
+    propose_fixes: bool = False,
+    *,
+    only: set[str] | None = None,
+    jobs: int = 1,
+    cleanup: bool = False,
+    on_row: Callable[[dict[str, object]], None] | None = None,
+) -> int:
+    """Scan task folders and write one CSV row each. Returns how many were scanned."""
+    tasks = [p for p in find_tasks(root) if only is None or p.name in only]
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=COLUMNS)
         writer.writeheader()
-        for path in tasks:
-            try:
-                report = scan_task(load_task(path), runner, propose_fixes=propose_fixes)
-                writer.writerow(row_for(report))
-            except Exception as exc:  # noqa: BLE001 - keep scanning the rest
-                kind = "task" if isinstance(exc, TaskError) else "scan"
-                writer.writerow({"task": path.name, "error": f"{kind} error: {exc}"})
-            fh.flush()
+        with ThreadPoolExecutor(max_workers=max(jobs, 1)) as pool:
+            futures = [pool.submit(_scan_one, p, runner, propose_fixes, cleanup) for p in tasks]
+            for future in as_completed(futures):
+                row = future.result()
+                writer.writerow(row)
+                fh.flush()
+                if on_row is not None:
+                    on_row(row)
     return len(tasks)

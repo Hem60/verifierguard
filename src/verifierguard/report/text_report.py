@@ -13,7 +13,9 @@ def render_text(report: ScanReport) -> str:
     elif report.oracle_passed is not None:
         out.append(f"Correct solution passes: {'yes' if report.oracle_passed else 'NO - task looks broken'}")
     for c in report.cheaters:
-        mark = "PASSED (gap)" if c.succeeded else "blocked"
+        mark = (
+            "PASSED (gap)" if c.succeeded else "INCONCLUSIVE (infra errors)" if c.inconclusive else "blocked"
+        )
         out.append(f"  cheater {c.name:<10} {mark}" + (f" - {c.evidence}" if c.evidence else ""))
     for f in report.findings:
         out.append(f"  [{f.severity}] {f.code} {f.title}" + (f" ({f.file})" if f.file else ""))

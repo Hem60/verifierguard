@@ -34,13 +34,13 @@ def version() -> None:
     typer.echo(__version__)
 
 
-def _runner(static_only: bool) -> DockerRunner | None:
+def _runner(static_only: bool, prebuilt: bool = False) -> DockerRunner | None:
     if static_only:
         return None
     if not docker_available():
         typer.echo("error: Docker is not available. Start Docker or use --static-only.", err=True)
         raise typer.Exit(2)
-    return DockerRunner()
+    return DockerRunner(prebuilt=prebuilt)
 
 
 def _apply(report: ScanReport, task_path: Path) -> None:
@@ -61,11 +61,12 @@ def scan(
     fix: Annotated[bool, typer.Option("--fix/--no-fix", help="Suggest and prove fixes.")] = True,
     llm: Annotated[bool, typer.Option(help="Also ask Gemini (GEMINI_API_KEY) for fixes.")] = False,
     apply: Annotated[bool, typer.Option(help="Write VERIFIED fixes into the task folder.")] = False,
+    prebuilt: Annotated[bool, typer.Option(help="Pull environment.docker_image if given.")] = False,
 ) -> None:
     """Attack a task's verifier with cheater agents and report the gaps."""
     try:
         task = load_task(task_dir)
-        report = scan_task(task, _runner(static_only), propose_fixes=fix, use_llm=llm)
+        report = scan_task(task, _runner(static_only, prebuilt), propose_fixes=fix, use_llm=llm)
     except TaskError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
@@ -93,10 +94,31 @@ def batch(
     tasks_dir: Annotated[Path, typer.Argument(help="Folder holding many task folders.")],
     csv_out: Annotated[Path, typer.Option("--csv", help="CSV file to write.")] = Path("results/scan.csv"),
     static_only: Annotated[bool, typer.Option(help="Skip Docker, run static checks only.")] = False,
+    prebuilt: Annotated[bool, typer.Option(help="Pull environment.docker_image if given.")] = False,
+    jobs: Annotated[int, typer.Option(help="Tasks scanned in parallel.")] = 1,
+    only: Annotated[Path | None, typer.Option(help="Text file with one task name per line to scan.")] = None,
+    cleanup: Annotated[bool, typer.Option(help="Delete each task image after its scan.")] = False,
+    fix: Annotated[bool, typer.Option("--fix/--no-fix", help="Also prove fixes.")] = False,
 ) -> None:
     """Scan every task folder inside TASKS_DIR and save one CSV row each."""
     if not tasks_dir.is_dir():
         typer.echo(f"error: not a directory: {tasks_dir}", err=True)
         raise typer.Exit(2)
-    count = run_batch(tasks_dir, csv_out, _runner(static_only))
+    names = None
+    if only is not None:
+        names = {ln.strip() for ln in only.read_text().splitlines() if ln.strip()}
+
+    def progress(row: dict[str, object]) -> None:
+        typer.echo(f"  {row['task']}: {row.get('verdict') or row.get('error')}")
+
+    count = run_batch(
+        tasks_dir,
+        csv_out,
+        _runner(static_only, prebuilt),
+        propose_fixes=fix,
+        only=names,
+        jobs=jobs,
+        cleanup=cleanup,
+        on_row=progress,
+    )
     typer.echo(f"scanned {count} tasks -> {csv_out}")
